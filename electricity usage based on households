@@ -1,0 +1,264 @@
+CREATE DATABASE PROJECT_ELECTRICITY_USAGE;
+USE PROJECT_ELECTRICITY_USAGE;
+SELECT * FROM APPLIANCE_USAGE;
+SELECT * FROM BILLING_INFO ;
+SELECT * FROM CALCULATED_METRICS;
+SELECT * FROM ENVIRONMENTAL_DATA;
+SELECT * FROM HOUSEHOLD_INFO;
+SET AUTOCOMMIT = OFF;
+
+/*
+-- TASK 1 (compeletd)
+PROJECT TASK 1: UPDATE THE PAYMENT_STATUS IN THE BILLING_INFO TABLE BASED ON THE COST_USD VALUE. USE CASE...END LOGIC.
+•	HINT:
+COST_USD > 200 SET “HIGH”
+COST_USD >  100 AND 200  SET “MEDIUM”
+ELSE “LOW”
+USE THE UPDATE STATEMENT ALONG WITH CASE TO SET VALUES CONDITIONALLY.
+*/
+
+SELECT * FROM BILLING_INFO;
+UPDATE BILLING_INFO SET PAYMENT_STATUS = 
+CASE WHEN COST_USD > 200 THEN 'HIGH'
+WHEN COST_USD >  100  AND COST_USD < 200  THEN 'MEDIUM' 
+ELSE 'LOW'
+END ;
+SELECT * FROM BILLING_INFO where PAYMENT_STATUS = 'low';
+SELECT * FROM BILLING_INFO where PAYMENT_STATUS = 'medium';
+SELECT * FROM BILLING_INFO where PAYMENT_STATUS = 'high';
+
+use project_electricity_usage;
+
+
+
+
+-- TASK 2 (completed)
+/*
+PROJECT TASK 2: (USING GROUP BY) FOR EACH HOUSEHOLD, SHOW THE MONTHLY ELECTRICITY USAGE, RANK OF USAGE WITHIN EACH YEAR, AND CLASSIFY USAGE LEVEL.
+•	HINT: USE SUM, MONTHNAME, DATE_FORMAT, RANK() OVER, AND CASE.
+•	HINT2: UPDATE USAGE LEVEL CRITERIA USING TOTAL KWH
+SUM(TOTAL KWH > 500 THEN “HIGH”
+ELSE “LOW”
+*/
+
+select HOUSEHOLD_ID, MONTH, YEAR ,total_kwh, RANK() OVER(PARTITION BY YEAR ORDER BY TOTAL_KWH DESC ) AS RANK_USAGE,
+DATE_FORMAT(SUBSTRING_INDEX(BILLING_CYCLE, ' to ', 1),'%Y-%m-%d') AS DATE,
+CASE WHEN TOTAL_KWH > 500 THEN 'HIGH' ELSE 'LOW' END AS USAGE_LEVEL 
+from (SELECT HOUSEHOLD_ID, MONTH, YEAR, sum(TOTAL_KWH) as total_kwh, BILLING_CYCLE
+FROM BILLING_INFO group by HOUSEHOLD_ID, MONTH,YEAR, BILLING_CYCLE)  as a ;
+
+SELECT count(distinct household_id) FROM BILLING_INFO ;
+use project_electricity_usage;
+
+
+
+
+/*
+-- TASK 3 (completed)
+PROJECT TASK 3:
+CREATE A MONTHLY USAGE PIVOT TABLE SHOWING USAGE FOR JANUARY, FEBRUARY, AND MARCH.
+•	HINT: USE CONDITIONAL AGGREGATION USING PIVOT CONCEPT WITH CASE WHEN.
+*/
+select * from billing_info ;
+select * from 
+(select household_id,
+sum(case when month = 'jan'then total_kwh else 0 end ) as jan,
+sum(case when month = 'feb'then total_kwh else 0 end ) as feb,
+sum(case when month = 'mar'then total_kwh else 0 end ) as march 
+from billing_info group by household_id) as a where not (jan = 0 and feb = 0 and march = 0);
+
+
+
+
+
+
+
+
+/*
+-- TASK 4 (COMPLETED)
+PROJECT TASK 4: SHOW AVERAGE MONTHLY USAGE PER HOUSEHOLD WITH CITY NAME.
+•	HINT: USE A SUBQUERY GROUPED BY HOUSEHOLD AND MONTH.
+*/
+
+-- method 1
+SELECT * FROM BILLING_INFO ; -- (TOTAL_KWH)
+SELECT * FROM HOUSEHOLD_INFO ; -- (CITY)
+
+SELECT B.*, H.CITY FROM (SELECT HOUSEHOLD_ID, MONTH, AVG(TOTAL_KWH) AS AVG_MONTHLY_USAGE 
+FROM BILLING_INFO GROUP BY HOUSEHOLD_ID, MONTH) AS B INNER JOIN HOUSEHOLD_INFO H 
+ON B.HOUSEHOLD_ID=H.HOUSEHOLD_ID;
+
+/*
+-- METHOD 2
+SELECT B.HOUSEHOLD_ID, B.MONTH, H.CITY, AVG(B.TOTAL_KWH) AS AVG_MONTHLY_USAGE 
+FROM BILLING_INFO B INNER JOIN HOUSEHOLD_INFO H 
+ON B.HOUSEHOLD_ID=H.HOUSEHOLD_ID GROUP BY B.HOUSEHOLD_ID, B.MONTH, H.CITY;
+*/ 
+
+
+
+
+
+/*
+-- TASK 5 (completed)
+PROJECT TASK 5: RETRIEVE AC USAGE AND OUTDOOR TEMPERATURE FOR HOUSEHOLDS WHERE AC USAGE IS HIGH.
+•	HINT: USE A SUBQUERY TO FILTER AC USAGE ABOVE 100.(HIGH)
+*/
+select a.household_id, a.kwh_usage_AC, e.avg_outdoor_temp from 
+(select household_id, kwh_usage_AC from appliance_usage where kwh_usage_AC > 100) as a
+inner join
+environmental_data as e 
+on a.household_id= e.household_id  ;
+
+/*
+select * from environmental_data;
+select * from appliance_usage;
+*/
+
+/*
+-- TASK 6 (completed)
+PROJECT TASK 6: CREATE A PROCEDURE TO RETURN BILLING INFO FOR A GIVEN REGION.
+•	HINT: USE IN PARAMETER IN A CREATE PROCEDURE.
+*/
+
+delimiter //
+CREATE PROCEDURE RETURN_BILLING (in return_region varchar(100))
+begin
+select  h.region ,b.* from household_info h inner join billing_info b on h.household_id = b.household_id where h.region = return_region;
+end //
+delimiter ;
+call RETURN_BILLING ('east');
+call RETURN_BILLING ('west');
+call RETURN_BILLING ('north');
+call RETURN_BILLING ('south');
+drop procedure RETURN_BILLING;
+select * from household_info;
+select * from billing_info;
+
+
+
+
+/*
+-- TASK 7 (completed)
+PROJECT TASK 7: CREATE A PROCEDURE TO CALCULATE TOTAL USAGE FOR A HOUSEHOLD AND RETURN IT.
+•	HINT: USE INOUT PARAMETER AND ASSIGN WITH SELECT INTO.
+*/
+delimiter //
+create procedure total_usage (in house_hold_id text , inout total_usage_return double )
+begin 
+select sum(total_kwh) into total_usage_return  from billing_info where household_id = house_hold_id;
+end //
+delimiter ;
+CALL total_usage ('H0001', @total_usage_return);-- PASS END
+SELECT @total_usage_return;
+drop procedure total_usage;
+select * from billing_info;
+
+
+/*
+-- TASK 8 (completed)
+PROJECT TASK 8: AUTOMATICALLY CALCULATE COST_USD BEFORE INSERTING INTO BILLING_INFO.
+•	HINT: USE BEFORE INSERT TRIGGER AND ASSIGN NEW.COST_USD.
+*/
+
+-- method 1
+-- insert into  by creating two table
+use project_electricity_usage;
+create table auto_cal_1 (household_id text ,total_kwh double  );
+create table auto_cal_2 (household_id text  , cost_usd double  );
+drop table auto_cal_1;
+drop table auto_cal_2;
+describe auto_cal_1;
+describe auto_cal_2;
+delimiter //
+CREATE TRIGGER auto_cal_trigger BEFORE INSERT ON auto_cal_1 FOR EACH ROW 
+begin
+insert into auto_cal_2 (household_id , cost_usd  )
+values (new.household_id  , round(new.total_kwh * 0.18) );
+end //
+delimiter ;
+drop TRIGGER auto_cal_trigger;
+insert into auto_cal_1 (household_id   , total_kwh  )
+values
+('H0001',1885.95),
+('H0002',1681.53),
+('H0003',1835.22),
+('H0004',1348.03),
+('H0005',1446.23),
+('H0006',1186.95);
+
+/*
+select  * from auto_cal_1;
+select  * from auto_cal_2;
+*/
+
+-- table used (billing_info)
+-- using billing info table
+create table auto_cal_3 (household_id text  , cost_usd double  );
+delimiter //
+CREATE TRIGGER auto_cal_trigger_2 BEFORE INSERT ON billing_info FOR EACH ROW 
+begin
+insert into auto_cal_3 (household_id , cost_usd  )
+values (new.household_id  , round(new.total_kwh * new.rate_per_kwh) );
+end //
+delimiter ;
+drop table auto_cal_3;
+drop TRIGGER auto_cal_trigger;
+insert into billing_info (household_id,rate_per_kwh, total_kwh)
+values 
+('H0001', 0.18, 1885.95),
+('H0002', 0.18, 1681.53),
+('H0003', 0.18, 1835.22),
+('H0004', 0.18, 1348.03);
+
+/*
+select * from auto_cal_3;
+select household_id,rate_per_kwh, total_kwh from billing_info;
+*/
+
+
+/*
+-- TASK 9 (completed)
+PROJECT TASK 9 : AFTER A NEW BILLING ENTRY, INSERT CALCULATED METRICS INTO CALCULATED_METRICS.
+•	HINT1: USE AFTER INSERT TRIGGER AND NEW KEYWORD.
+•	HINT 2:  CALCULATIONS(METRICS)
+HOUSE HOLD_ID = NEW.HOUSE_HOLD_ID
+KWG PER_OCCUPANT = TOTAL_KWH /NUM_OCCUPANTS
+USAGE CATEGORY = TOTAL_KWH > 600 SET “HIGH” ELSE “MODERATE”
+*/use project_electricity_usage;
+create table NEW_BILLING_ENTRY (household_id text ,month text ,year int ,billing_cycle text ,payment_status text ,rate_per_kwh double ,cost_usd double ,total_kwh double);
+create table new_calculated_metrics(household_id text ,kwh_per_occupant double ,kwh_per_sqft double ,usage_category text);
+delimiter //
+create trigger NEW_BILL_ENT AFTER INSERT ON NEW_BILLING_ENTRY FOR EACH ROW  
+begin
+declare KWG_PER_OCCUPANT double default 0 ;
+declare kwh_per_sqft double default 0 ;
+declare usage_category text default null ;
+select n.TOTAL_KWH /h.NUM_OCCUPANTS into KWG_PER_OCCUPANt from 
+NEW_BILLING_ENTRY as n inner join household_info as h 
+on n.household_id= h.household_id where n.household_id = new. HOUSEHOLD_ID;
+select n.TOTAL_KWH /h.floor_area_sqft into kwh_per_sqft from 
+NEW_BILLING_ENTRY as n inner join household_info as h 
+on n.household_id= h.household_id where n.household_id = new. HOUSEHOLD_ID;
+select case when TOTAL_KWH > 600 then 'HIGH' ELSE 'MODERATE' end into usage_category from 
+NEW_BILLING_ENTRY  where household_id = new.HOUSEHOLD_ID;
+insert into new_calculated_metrics (household_id  ,kwh_per_occupant  ,kwh_per_sqft  ,usage_category )
+values (new.household_id  ,KWG_PER_OCCUPANT  ,round(kwh_per_sqft,2),usage_category );
+end //
+delimiter ;
+insert into NEW_BILLING_ENTRY (household_id  ,month  ,year  ,billing_cycle  ,payment_status  ,rate_per_kwh  ,cost_usd  ,total_kwh )values 
+('H0001', 'Jan', 2025, '2025-01-01 to 2025-01-30', 'HIGH', 0.18, 339.47, 1885.95),
+('H0002', 'Feb', 2025, '2025-02-01 to 2025-02-30', 'HIGH', 0.18, 302.68, 1681.53),
+('H0003', 'Mar', 2025, '2025-03-01 to 2025-03-30', 'HIGH', 0.18, 330.34, 1835.22),
+('H0004', 'Apr', 2025, '2025-04-01 to 2025-04-30', 'HIGH', 0.18, 242.65, 1348.03),
+('H0005', 'May', 2025, '2025-05-01 to 2025-05-30', 'HIGH', 0.18, 260.32, 1446.23);
+select * from NEW_BILLING_ENTRY;
+select * from new_calculated_metrics;
+drop table NEW_BILLING_ENTRY;
+drop table new_calculated_metrics;
+select * from calculated_metrics;
+select * from billing_info;
+select * from household_info;
+select * from NEW_BILLING_ENTRY;
+select * from new_calculated_metrics;
+drop trigger NEW_BILL_ENT;
